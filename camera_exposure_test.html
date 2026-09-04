@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Camera Exposure Control Test</title>
+<style>
+  :root {
+    --ink: #f5f5f5; --paper: #0a0a0a; --surface: #161616; --field: #1e1e1e;
+    --line: #2c2c2c; --accent: #ff8a3d; --muted: #a8a8a8; --good: #4ade80; --bad: #f87171;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; padding:20px 16px 60px; background:var(--paper); color:var(--ink); font-family:-apple-system,sans-serif; font-size:16px; }
+  h1 { font-size:18px; font-weight:800; margin:0 0 6px; }
+  p.hint { color:var(--muted); font-size:13px; margin:0 0 20px; line-height:1.4; }
+
+  button.big {
+    display: block; width: 100%; font-family: inherit; font-size: 15px; font-weight: 800;
+    padding: 16px; border-radius: 12px; border: none; background: var(--accent); color: #0a0a0a;
+    cursor: pointer; margin-bottom: 16px;
+  }
+  button.big:disabled { background: var(--field); color: var(--muted); }
+
+  video { width: 100%; border-radius: 12px; background: #000; margin-bottom: 16px; display: none; }
+
+  .status-box {
+    background: var(--surface); border: 1.5px solid var(--line); border-radius: 12px;
+    padding: 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.8;
+  }
+  .status-box .label { color: var(--muted); }
+  .status-box .val { font-weight: 700; }
+  .status-box .val.good { color: var(--good); }
+  .status-box .val.bad { color: var(--bad); }
+
+  .verdict {
+    padding: 16px; border-radius: 12px; margin-bottom: 16px; font-size: 15px; font-weight: 800;
+    text-align: center; display: none;
+  }
+  .verdict.good { background: rgba(74,222,128,0.15); color: var(--good); border: 1.5px solid var(--good); }
+  .verdict.bad { background: rgba(248,113,113,0.15); color: var(--bad); border: 1.5px solid var(--bad); }
+
+  .control-group { margin-bottom: 16px; display: none; }
+  .control-group label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 6px; }
+  .control-group .row { display: flex; align-items: center; gap: 10px; }
+  .control-group input[type="range"] { flex: 1; }
+  .control-group .readout { font-weight: 800; font-size: 14px; min-width: 70px; text-align: right; }
+
+  .log { background: var(--field); border-radius: 10px; padding: 12px; font-size: 11px; font-family: monospace; color: var(--muted); white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; }
+</style>
+</head>
+<body>
+
+<h1>Camera Exposure Control Test</h1>
+<p class="hint">Checks whether your phone's browser allows real manual control over the camera's exposure time and ISO. No calculation, no guessing — this either works at the hardware level or it doesn't, and this test tells us which.</p>
+
+<button class="big" id="startBtn" onclick="startTest()">Start Camera Test</button>
+
+<video id="video" autoplay playsinline muted></video>
+
+<div class="verdict" id="verdict"></div>
+
+<div class="status-box" id="capsBox" style="display:none;"></div>
+
+<div class="control-group" id="exposureTimeGroup">
+  <label>Exposure Time (manual)</label>
+  <div class="row">
+    <input type="range" id="exposureTimeSlider">
+    <span class="readout" id="exposureTimeReadout">—</span>
+  </div>
+</div>
+
+<div class="control-group" id="isoGroup">
+  <label>ISO (manual)</label>
+  <div class="row">
+    <input type="range" id="isoSlider">
+    <span class="readout" id="isoReadout">—</span>
+  </div>
+</div>
+
+<button class="big" id="autoBtn" onclick="resetToAuto()" style="display:none; background:var(--field); color:var(--ink);">Reset to Auto Exposure</button>
+
+<div class="log" id="log"></div>
+
+<script>
+let track = null;
+
+function logMsg(msg) {
+  const el = document.getElementById('log');
+  el.textContent += msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+async function startTest() {
+  const btn = document.getElementById('startBtn');
+  btn.disabled = true;
+  btn.textContent = 'Requesting camera…';
+  logMsg('Requesting camera access…');
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false
+    });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    video.style.display = 'block';
+    track = stream.getVideoTracks()[0];
+    logMsg('Camera stream acquired: ' + track.label);
+
+    btn.textContent = 'Camera running';
+
+    const caps = track.getCapabilities ? track.getCapabilities() : null;
+    logMsg('getCapabilities() result: ' + JSON.stringify(caps, null, 2));
+
+    const capsBox = document.getElementById('capsBox');
+    capsBox.style.display = 'block';
+
+    if (!caps) {
+      capsBox.innerHTML = '<span class="label">getCapabilities() is not supported at all in this browser.</span>';
+      showVerdict(false, 'This browser does not expose camera capability info. Manual exposure control is not available.');
+      return;
+    }
+
+    const hasExposureMode = caps.exposureMode && caps.exposureMode.includes('manual');
+    const hasExposureTime = !!caps.exposureTime;
+    const hasIso = !!caps.iso;
+
+    let html = '';
+    html += `<span class="label">exposureMode options:</span> <span class="val ${hasExposureMode ? 'good' : 'bad'}">${caps.exposureMode ? caps.exposureMode.join(', ') : 'not reported'}</span><br>`;
+    html += `<span class="label">exposureTime range:</span> <span class="val ${hasExposureTime ? 'good' : 'bad'}">${hasExposureTime ? caps.exposureTime.min + ' – ' + caps.exposureTime.max : 'not supported'}</span><br>`;
+    html += `<span class="label">iso range:</span> <span class="val ${hasIso ? 'good' : 'bad'}">${hasIso ? caps.iso.min + ' – ' + caps.iso.max : 'not supported'}</span><br>`;
+    capsBox.innerHTML = html;
+
+    if (hasExposureMode && hasExposureTime) {
+      showVerdict(true, 'Manual exposure control IS supported on this phone/browser. Real hardware-level preview is technically possible here.');
+      setupExposureTimeSlider(caps.exposureTime);
+      if (hasIso) setupIsoSlider(caps.iso);
+      document.getElementById('autoBtn').style.display = 'block';
+    } else if (hasExposureMode && hasIso && !hasExposureTime) {
+      showVerdict(false, 'Only ISO can be controlled manually, not exposure time. Not enough for a real exposure preview.');
+      setupIsoSlider(caps.iso);
+    } else {
+      showVerdict(false, 'Manual exposure control is NOT supported on this phone/browser. A hardware-based preview is not possible here.');
+    }
+  } catch (err) {
+    logMsg('ERROR: ' + err.name + ' — ' + err.message);
+    showVerdict(false, 'Could not access the camera (' + err.name + '). Test inconclusive.');
+    btn.disabled = false;
+    btn.textContent = 'Start Camera Test';
+  }
+}
+
+function showVerdict(isGood, text) {
+  const el = document.getElementById('verdict');
+  el.className = 'verdict ' + (isGood ? 'good' : 'bad');
+  el.textContent = (isGood ? '✓ ' : '✗ ') + text;
+  el.style.display = 'block';
+}
+
+function setupExposureTimeSlider(range) {
+  const group = document.getElementById('exposureTimeGroup');
+  const slider = document.getElementById('exposureTimeSlider');
+  const readout = document.getElementById('exposureTimeReadout');
+  group.style.display = 'block';
+  slider.min = range.min;
+  slider.max = range.max;
+  slider.step = range.step || 1;
+  slider.value = range.min + (range.max - range.min) / 2;
+  readout.textContent = slider.value;
+
+  slider.addEventListener('input', async () => {
+    readout.textContent = slider.value;
+    try {
+      await track.applyConstraints({ advanced: [{ exposureMode: 'manual', exposureTime: Number(slider.value) }] });
+      logMsg('Applied exposureTime=' + slider.value + ' — check if the live video actually got brighter/darker.');
+    } catch (err) {
+      logMsg('applyConstraints exposureTime FAILED: ' + err.message);
+    }
+  });
+}
+
+function setupIsoSlider(range) {
+  const group = document.getElementById('isoGroup');
+  const slider = document.getElementById('isoSlider');
+  const readout = document.getElementById('isoReadout');
+  group.style.display = 'block';
+  slider.min = range.min;
+  slider.max = range.max;
+  slider.step = range.step || 1;
+  slider.value = range.min + (range.max - range.min) / 2;
+  readout.textContent = slider.value;
+
+  slider.addEventListener('input', async () => {
+    readout.textContent = slider.value;
+    try {
+      await track.applyConstraints({ advanced: [{ exposureMode: 'manual', iso: Number(slider.value) }] });
+      logMsg('Applied iso=' + slider.value + ' — check if the live video actually got brighter/darker.');
+    } catch (err) {
+      logMsg('applyConstraints iso FAILED: ' + err.message);
+    }
+  });
+}
+
+async function resetToAuto() {
+  try {
+    await track.applyConstraints({ advanced: [{ exposureMode: 'continuous' }] });
+    logMsg('Reset to auto exposure.');
+  } catch (err) {
+    logMsg('Reset FAILED: ' + err.message);
+  }
+}
+</script>
+
+</body>
+</html>
