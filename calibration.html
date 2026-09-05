@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Exposure Calibration</title>
+<style>
+  :root {
+    --ink: #f5f5f5; --paper: #0a0a0a; --surface: #161616; --field: #1e1e1e;
+    --line: #2c2c2c; --accent: #ff8a3d; --muted: #a8a8a8; --good: #4ade80; --bad: #f87171;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 20px 16px 60px; background: var(--paper); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px; -webkit-font-smoothing: antialiased;
+  }
+  h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 16px; }
+
+  .modeToggle { display: flex; justify-content: center; margin-bottom: 18px; }
+  .modeToggle-inner { display: flex; background: var(--field); border-radius: 20px; padding: 3px; border: 1px solid var(--line); }
+  .modeToggle button {
+    border: none; background: transparent; color: var(--muted); font-family: inherit;
+    font-size: 12px; letter-spacing: .08em; padding: 7px 16px; border-radius: 16px; cursor: pointer;
+  }
+  .modeToggle button.active { background: var(--accent); color: #0a0a0a; font-weight: 700; }
+
+  video { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 12px; background: #000; margin-bottom: 14px; display: none; border: 1.5px solid var(--accent); }
+
+  button.big, label.big {
+    display: block; width: 100%; font-family: inherit; font-size: 15px; font-weight: 800;
+    padding: 14px; border-radius: 10px; border: 1.5px solid var(--accent); background: transparent; color: var(--accent);
+    cursor: pointer; margin-bottom: 14px; box-sizing: border-box;
+  }
+  button.big.solid { background: var(--accent); color: #0a0a0a; border: none; }
+
+  .field-row { display: flex; gap: 8px; margin-bottom: 14px; }
+  .field-row .field { flex: 1; text-align: center; }
+  .field-row label { display: block; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+  input[type="text"] {
+    width: 100%; font-family: inherit; font-size: 16px; font-weight: 600; padding: 10px;
+    border: 1.5px solid var(--line); border-radius: 10px; background: var(--field); color: var(--ink); text-align: center;
+  }
+  input[type="text"]:focus { border-color: var(--ink); outline: none; }
+
+  .result-box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; font-size: 13px; line-height: 1.5; display: none; margin-bottom: 14px; }
+
+  .point-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+  .point-row { display: flex; align-items: center; gap: 8px; }
+  .grab-btn {
+    font-family: inherit; font-size: 12px; font-weight: 700; padding: 10px 12px; border-radius: 8px;
+    border: 1.5px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; flex-shrink: 0;
+  }
+  .grab-btn.done { background: var(--accent); color: #0a0a0a; border-color: var(--accent); }
+  .point-inputs { display: flex; gap: 8px; flex: 1; }
+  .point-inputs input { padding: 10px 6px; font-size: 14px; }
+  .point-inputs input.iso-input { width: 56px; flex: none; }
+</style>
+</head>
+<body>
+
+<h1>Exposure Calibration</h1>
+
+<div class="modeToggle">
+  <div class="modeToggle-inner">
+    <button type="button" id="quickBtn" class="active" onclick="setMode('quick')">QUICK</button>
+    <button type="button" id="advBtn" onclick="setMode('advanced')">ADVANCED</button>
+  </div>
+</div>
+
+<button class="big" id="startBtn" onclick="startCamera()">Start Camera</button>
+
+<label class="big" for="loadCalibInput" style="text-align:center; display:block;">Load calibration from file</label>
+<input type="file" id="loadCalibInput" accept="application/json" style="display:none;" onchange="loadCalibrationFile(this)">
+
+<video id="video" autoplay playsinline muted></video>
+
+<!-- QUICK -->
+<div id="quickPanel" style="display:none;">
+  <button class="big" id="grabBtnQuick" onclick="grabQuick(event)">Auto Expose</button>
+
+  <div class="field-row">
+    <div class="field"><label>ISO</label><input type="text" id="camIso" value="400"></div>
+    <div class="field"><label>Aperture</label><input type="text" id="camAperture" value="8"></div>
+    <div class="field"><label>Shutter</label><input type="text" id="camShutter" value="1/125"></div>
+  </div>
+
+  <button class="big" onclick="calculateQuick()">Calculate</button>
+  <div class="result-box" id="quickResult"></div>
+</div>
+
+<!-- ADVANCED -->
+<div id="advPanel" style="display:none;">
+  <div id="advPoints"></div>
+  <button class="big" onclick="calculateAdvanced()">Calculate</button>
+  <div class="result-box" id="advResult"></div>
+</div>
+
+<script>
+const PHONE_APERTURE = 1.65; // Redmi Note 13 Pro 5G main camera
+let track = null;
+let mode = 'quick';
+
+function parseShutterLike(str) {
+  str = (str || '').trim();
+  if (!str) return NaN;
+  if (str.includes('/')) { const p = str.split('/'); return parseFloat(p[0]) / parseFloat(p[1]); }
+  return parseFloat(str);
+}
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('quickBtn').classList.toggle('active', m === 'quick');
+  document.getElementById('advBtn').classList.toggle('active', m === 'advanced');
+  document.getElementById('quickPanel').style.display = m === 'quick' ? 'block' : 'none';
+  document.getElementById('advPanel').style.display = m === 'advanced' ? 'block' : 'none';
+}
+
+async function startCamera() {
+  const btn = document.getElementById('startBtn');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    video.style.display = 'block';
+    track = stream.getVideoTracks()[0];
+    btn.textContent = 'Camera running';
+    btn.disabled = true;
+    setMode(mode);
+    document.getElementById(mode === 'quick' ? 'quickPanel' : 'advPanel').style.display = 'block';
+  } catch (err) {
+    btn.textContent = 'Camera access failed';
+  }
+}
+
+function saveCalibration(cal) {
+  try { localStorage.setItem('exposureTestCalibration', JSON.stringify(cal)); } catch (e) {}
+  try {
+    const blob = new Blob([JSON.stringify(cal)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'exposure_calibration.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {}
+}
+
+function loadCalibrationFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const cal = JSON.parse(e.target.result);
+      localStorage.setItem('exposureTestCalibration', JSON.stringify(cal));
+      alert('Calibration loaded from file and saved.');
+    } catch (err) {
+      alert('Could not read this calibration file.');
+    }
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+
+// ---- QUICK ----
+let quickGrab = null;
+function grabQuick(e) {
+  if (!track) return;
+  const s = track.getSettings ? track.getSettings() : {};
+  if (s.exposureTime === undefined) return;
+  quickGrab = { raw: s.exposureTime, iso: s.iso || 100 };
+  e.target.classList.add('done');
+  e.target.textContent = '✓';
+}
+
+function calculateQuick() {
+  const result = document.getElementById('quickResult');
+  result.style.display = 'block';
+  if (!quickGrab) {
+    result.innerHTML = '<span style="color:var(--bad);">Tap Auto Expose first.</span>';
+    return;
+  }
+  const iso = parseFloat(document.getElementById('camIso').value);
+  const N = parseFloat(document.getElementById('camAperture').value);
+  const t = parseShutterLike(document.getElementById('camShutter').value);
+  if (isNaN(iso) || isNaN(N) || isNaN(t)) {
+    result.innerHTML = '<span style="color:var(--bad);">Fill in ISO, aperture and shutter.</span>';
+    return;
+  }
+  const tPhoneEquivalent = t * (PHONE_APERTURE * PHONE_APERTURE) / (N * N) * (quickGrab.iso / iso);
+  const factor = tPhoneEquivalent / quickGrab.raw;
+  saveCalibration({ secondsPerUnit: factor, pointsUsed: 1, maxDeviationPct: 'N/A', isLinear: null, quick: true });
+  result.innerHTML = `<span style="color:var(--bad); font-weight:800;">⚠ Quick calibration (1 point, unverified) — factor ${factor.toExponential(3)} sec/unit. Saved.</span>`;
+}
+
+// ---- ADVANCED ----
+const ADV_LABELS = ['Dim indoor room', 'Normal indoor light', 'Open shade outdoors', 'Full sun outdoors'];
+const advGrabbed = [null, null, null, null];
+
+function buildAdvPoints() {
+  const container = document.getElementById('advPoints');
+  container.innerHTML = ADV_LABELS.map((label, idx) => `
+    <div class="point-card">
+      <div style="font-size:12px; font-weight:700; margin-bottom:10px;">${label}</div>
+      <div class="point-row">
+        <button type="button" class="grab-btn" id="advGrab${idx}" onclick="grabAdv(${idx})">Grab</button>
+        <div class="point-inputs">
+          <input type="text" id="advShutter${idx}" placeholder="Shutter">
+          <input type="text" class="iso-input" id="advIso${idx}" value="200">
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+buildAdvPoints();
+
+function grabAdv(idx) {
+  if (!track) return;
+  const s = track.getSettings ? track.getSettings() : {};
+  if (s.exposureTime === undefined) return;
+  advGrabbed[idx] = { raw: s.exposureTime, iso: s.iso || 100 };
+  const btn = document.getElementById('advGrab' + idx);
+  btn.classList.add('done');
+  btn.textContent = '✓';
+}
+
+function calculateAdvanced() {
+  const result = document.getElementById('advResult');
+  result.style.display = 'block';
+  const factors = [];
+  for (let idx = 0; idx < 4; idx++) {
+    const g = advGrabbed[idx];
+    if (!g) continue;
+    const sh = parseShutterLike(document.getElementById('advShutter' + idx).value);
+    const iso = parseFloat(document.getElementById('advIso' + idx).value);
+    if (isNaN(sh) || isNaN(iso)) continue;
+    factors.push((sh * iso) / (g.raw * g.iso));
+  }
+  if (factors.length === 0) {
+    result.innerHTML = '<span style="color:var(--bad);">Grab and fill in at least one point.</span>';
+    return;
+  }
+  const avg = factors.reduce((a, b) => a + b, 0) / factors.length;
+  if (factors.length === 1) {
+    saveCalibration({ secondsPerUnit: avg, pointsUsed: 1, maxDeviationPct: 'N/A', isLinear: null });
+    result.innerHTML = `<span style="color:var(--bad); font-weight:800;">⚠ Only 1 point — unverified. Factor ${avg.toExponential(3)} sec/unit. Saved.</span>`;
+    return;
+  }
+  const maxDev = Math.max(...factors.map(f => Math.abs(f - avg) / avg));
+  const isLinear = maxDev < 0.15;
+  saveCalibration({ secondsPerUnit: avg, pointsUsed: factors.length, maxDeviationPct: (maxDev * 100).toFixed(1), isLinear });
+  if (isLinear) {
+    result.innerHTML = `<span style="color:var(--good); font-weight:800;">✓ Consistent across ${factors.length} points (${(maxDev*100).toFixed(1)}% deviation). Factor ${avg.toExponential(3)} sec/unit. Saved.</span>`;
+  } else {
+    result.innerHTML = `<span style="color:var(--bad); font-weight:800;">⚠ Varies ${(maxDev*100).toFixed(1)}% across ${factors.length} points — inconsistent. Not saved as trusted.</span>`;
+  }
+}
+</script>
+
+</body>
+</html>
