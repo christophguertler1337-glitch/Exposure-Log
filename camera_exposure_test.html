@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Camera Exposure Preview — Calibration Tool</title>
+<style>
+  :root {
+    --ink: #f5f5f5; --paper: #0a0a0a; --surface: #161616; --field: #1e1e1e;
+    --line: #2c2c2c; --accent: #ff8a3d; --muted: #a8a8a8; --good: #4ade80; --bad: #f87171;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 20px 16px 60px; background: var(--paper); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px; -webkit-font-smoothing: antialiased;
+  }
+  h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 6px; }
+  p.hint { color: var(--muted); font-size: 13px; margin: 0 0 20px; line-height: 1.45; }
+
+  button.big {
+    display: block; width: 100%; font-family: inherit; font-size: 15px; font-weight: 800;
+    padding: 15px; border-radius: 12px; border: none; background: var(--accent); color: #0a0a0a;
+    cursor: pointer; margin-bottom: 16px;
+  }
+  button.big:disabled { background: var(--field); color: var(--muted); }
+  .btn-secondary {
+    display: block; width: 100%; font-family: inherit; font-size: 13px; font-weight: 700;
+    padding: 12px; border-radius: 10px; border: 1.5px solid var(--accent); background: transparent; color: var(--accent);
+    cursor: pointer; margin-bottom: 12px;
+  }
+  button.btn-ghost {
+    display: block; width: 100%; font-family: inherit; font-size: 14px; font-weight: 700;
+    padding: 14px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--field); color: var(--ink);
+    cursor: pointer; margin-bottom: 16px;
+  }
+
+  video { width: 100%; border-radius: 14px; background: #000; margin-bottom: 16px; display: none; border: 1px solid var(--line); }
+
+  .status-box {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.8;
+  }
+  .status-box .label { color: var(--muted); }
+  .status-box .val { font-weight: 700; }
+  .status-box .val.good { color: var(--good); }
+  .status-box .val.bad { color: var(--bad); }
+
+  .verdict {
+    padding: 14px 16px; border-radius: 12px; margin-bottom: 16px; font-size: 14px; font-weight: 700;
+    text-align: center; display: none; line-height: 1.4;
+  }
+  .verdict.good { background: rgba(74,222,128,0.12); color: var(--good); border: 1.5px solid var(--good); }
+  .verdict.bad { background: rgba(248,113,113,0.12); color: var(--bad); border: 1.5px solid var(--bad); }
+
+  .section { display: none; margin-top: 20px; }
+  .section-card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 16px;
+  }
+  .section-title { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
+  .section h2 { font-size: 16px; font-weight: 800; margin: 0 0 6px; }
+  .section p.hint { margin-bottom: 14px; }
+
+  .field-group { margin-bottom: 12px; }
+  .field-group label {
+    font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--muted); display: block; margin-bottom: 6px;
+  }
+  .field-row { display: flex; gap: 10px; margin-bottom: 12px; }
+  .field-row .field-group { flex: 1; margin-bottom: 0; }
+  .field-group input[type="text"] {
+    width: 100%; font-family: inherit; font-size: 16px; font-weight: 600; padding: 10px;
+    border: 1.5px solid var(--line); border-radius: 10px; background: var(--field); color: var(--ink);
+  }
+  .field-group input[type="text"]:focus { border-color: var(--ink); outline: none; }
+
+  .pill-group { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .pill-group button {
+    flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center;
+    font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+    padding: 9px 10px; border: 1.5px solid var(--line); border-radius: 20px; background: var(--field); color: var(--ink);
+  }
+  .pill-group button.active { background: var(--accent); border-color: var(--accent); color: #0a0a0a; }
+
+  .slider-row { display: flex; align-items: center; gap: 12px; }
+  .slider-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .slider-row .readout {
+    font-weight: 800; font-size: 17px; min-width: 78px; text-align: right; color: var(--accent);
+  }
+  .slider-sub { font-size: 11px; color: var(--muted); text-align: right; margin-top: 4px; }
+
+  .calib-readout { background: var(--field); border: 1px solid var(--line); border-radius: 10px; padding: 12px; font-size: 12px; line-height: 1.6; margin-bottom: 4px; }
+  .calib-point { background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+  .calib-point .point-title { font-size: 12px; font-weight: 800; margin-bottom: 10px; color: var(--ink); }
+  .calib-point .grab-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .calib-point .grab-btn {
+    font-family: inherit; font-size: 11px; font-weight: 700; padding: 9px 12px; border-radius: 8px;
+    border: 1.5px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; flex-shrink: 0;
+  }
+  .calib-point .grabbed { font-size: 11px; color: var(--muted); flex: 1; }
+  .calib-point .grabbed.filled { color: var(--good); }
+
+  .log {
+    background: var(--field); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+    font-size: 11px; font-family: 'SF Mono', Menlo, monospace; color: var(--muted);
+    white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow-y: auto; margin-top: 20px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Camera Exposure Preview</h1>
+
+<button class="big" id="startBtn" onclick="startTest()">Start Camera Test</button>
+
+<video id="video" autoplay playsinline muted></video>
+
+<div class="verdict" id="verdict"></div>
+
+<div class="status-box" id="capsBox" style="display:none;"></div>
+
+<div class="section-card" id="manualControlsCard" style="display:none;">
+  <div class="section-title">Raw control (debug)</div>
+  <div class="field-group" id="exposureTimeGroup" style="display:none;">
+    <label>Exposure Time (raw)</label>
+    <div class="slider-row">
+      <input type="range" id="exposureTimeSlider">
+      <span class="readout" id="exposureTimeReadout">—</span>
+    </div>
+  </div>
+  <div class="field-group" id="isoGroup" style="display:none;">
+    <label>ISO (raw)</label>
+    <div class="slider-row">
+      <input type="range" id="isoSlider">
+      <span class="readout" id="isoReadout">—</span>
+    </div>
+  </div>
+  <button class="btn-ghost" id="autoBtn" onclick="resetToAuto()" style="display:none; margin-bottom:0;">Reset to Auto Exposure</button>
+</div>
+
+<!-- ===== STEP 1: CALIBRATION ===== -->
+<div class="section" id="calibSection">
+  <div class="section-title">Step 1</div>
+  <h2>Calibrate against Sekonic + gray card</h2>
+
+  <div id="calibPoints"></div>
+
+  <button class="btn-secondary" onclick="computeCalibration()">Calculate calibration from all points</button>
+  <button class="btn-secondary" style="border-color:var(--line); color:var(--muted);" onclick="skipCalibration()">Skip calibration (placeholder, testing only)</button>
+  <div class="calib-readout" id="calibReadout">Not calibrated yet.</div>
+</div>
+
+<!-- ===== STEP 2: SINGLE VALUE PREVIEW ===== -->
+<div class="section" id="previewSection">
+  <div class="section-title">Step 2</div>
+  <h2>Preview a specific exposure</h2>
+
+  <div class="field-row">
+    <div class="field-group">
+      <label>Aperture (f/)</label>
+      <input type="text" id="targetAperture" placeholder="e.g. 8">
+    </div>
+    <div class="field-group">
+      <label>Shutter (sec)</label>
+      <input type="text" id="targetShutter" placeholder="e.g. 1/125">
+    </div>
+    <div class="field-group">
+      <label>ISO</label>
+      <input type="text" id="targetIso" placeholder="e.g. 400">
+    </div>
+  </div>
+
+  <button class="btn-secondary" onclick="applyEvPreviewFromFields()">Apply to live preview</button>
+  <div class="calib-readout" id="previewReadout"></div>
+</div>
+
+<!-- ===== STEP 3: AV / TV FINE-TUNE SLIDER ===== -->
+<div class="section" id="avTvSection">
+  <div class="section-title">Step 3</div>
+  <h2>Fine-tune brightness (½-stop)</h2>
+
+  <div class="pill-group">
+    <button type="button" id="avModeBtn" class="active" onclick="setAvTvMode('AV')">AV — fix shutter, slide aperture</button>
+    <button type="button" id="tvModeBtn" onclick="setAvTvMode('TV')">TV — fix aperture, slide shutter</button>
+  </div>
+
+  <div class="field-row">
+    <div class="field-group">
+      <label id="fixedFieldLabel">Fixed Shutter (sec)</label>
+      <input type="text" id="fixedValueInput" placeholder="e.g. 1/125">
+    </div>
+    <div class="field-group">
+      <label>ISO (fixed)</label>
+      <input type="text" id="avTvIso" placeholder="e.g. 400">
+    </div>
+  </div>
+
+  <div class="field-group">
+    <label id="sliderFieldLabel">Aperture</label>
+    <div class="slider-row">
+      <input type="range" id="avTvSlider" min="0" max="18" step="1">
+      <span class="readout" id="avTvReadout">—</span>
+    </div>
+    <div class="slider-sub" id="avTvSub"></div>
+  </div>
+</div>
+
+<div class="log" id="log"></div>
+
+<script>
+const PHONE_APERTURE = 1.65; // Redmi Note 13 Pro 5G main camera, confirmed spec
+
+const APERTURE_HALFSTOPS = [32, 27, 22, 19, 16, 13, 11, 9.5, 8, 6.7, 5.6, 4.8, 4, 3.5, 2.8, 2.4, 2, 1.7, 1.4];
+const SHUTTER_HALFSTOPS = (() => {
+  const fullStops = [1/4000, 1/2000, 1/1000, 1/500, 1/250, 1/125, 1/60, 1/30, 1/15, 1/8, 1/4, 1/2, 1, 2, 4];
+  const out = [];
+  for (let i = 0; i < fullStops.length; i++) {
+    out.push(fullStops[i]);
+    if (i < fullStops.length - 1) out.push(Math.sqrt(fullStops[i] * fullStops[i + 1]));
+  }
+  return out;
+})();
+
+function parseShutterLike(str) {
+  str = (str || '').trim();
+  if (!str) return NaN;
+  if (str.endsWith('"')) return parseFloat(str);
+  if (str.includes('/')) {
+    const parts = str.split('/');
+    return parseFloat(parts[0]) / parseFloat(parts[1]);
+  }
+  return parseFloat(str);
+}
+
+function formatShutter(sec) {
+  if (sec >= 1) return sec.toFixed(sec >= 10 ? 0 : 1) + 's';
+  return '1/' + Math.round(1 / sec);
+}
+
+let calibration = null;
+let deviceCaps = { exposureTime: null, iso: null };
+try {
+  const saved = localStorage.getItem('exposureTestCalibration');
+  if (saved) calibration = JSON.parse(saved);
+} catch (e) {}
+
+let track = null;
+let avTvMode = 'AV';
+
+function logMsg(msg) {
+  const el = document.getElementById('log');
+  el.textContent += msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+function computeAndApplyPhoneExposure(N_t, t_t, iso_t) {
+  if (!calibration || !track) return null;
+
+  let iso_p = iso_t;
+  let t_p = t_t * (PHONE_APERTURE * PHONE_APERTURE) / (N_t * N_t);
+
+  const isoMin = deviceCaps.iso ? deviceCaps.iso.min : 50;
+  const isoMax = deviceCaps.iso ? deviceCaps.iso.max : 3200;
+  if (iso_p < isoMin || iso_p > isoMax) {
+    const isoClamped = Math.min(Math.max(iso_p, isoMin), isoMax);
+    t_p = t_p * (iso_p / isoClamped);
+    iso_p = isoClamped;
+  }
+
+  let raw_p = t_p / calibration.secondsPerUnit;
+  const rawMin = deviceCaps.exposureTime ? deviceCaps.exposureTime.min : 0;
+  const rawMax = deviceCaps.exposureTime ? deviceCaps.exposureTime.max : Infinity;
+
+  let warning = '';
+  if (raw_p < rawMin || raw_p > rawMax) {
+    const rawClamped = Math.min(Math.max(raw_p, rawMin), rawMax);
+    const t_p_clamped = rawClamped * calibration.secondsPerUnit;
+    const iso_needed = iso_p * (t_p / t_p_clamped);
+    const iso_final = Math.min(Math.max(iso_needed, isoMin), isoMax);
+    if (Math.abs(iso_final - iso_needed) > 0.5) {
+      warning = 'Outside phone range even after ISO adjustment — preview will be inaccurate.';
+    }
+    iso_p = iso_final;
+    raw_p = rawClamped;
+    t_p = t_p_clamped;
+  }
+
+  return { iso_p, t_p, raw_p, warning };
+}
+
+async function applyEvPreviewFromFields() {
+  if (!calibration) { alert('Calibrate first.'); return; }
+  if (!track) { alert('Start the camera first.'); return; }
+
+  const N_t = parseFloat(document.getElementById('targetAperture').value);
+  const t_t = parseShutterLike(document.getElementById('targetShutter').value);
+  const iso_t = parseFloat(document.getElementById('targetIso').value);
+  const readout = document.getElementById('previewReadout');
+
+  if (isNaN(N_t) || isNaN(t_t) || isNaN(iso_t) || N_t <= 0 || t_t <= 0 || iso_t <= 0) {
+    readout.innerHTML = '<span style="color:var(--bad);">Fill in aperture, shutter and ISO first.</span>';
+    return;
+  }
+
+  const result = computeAndApplyPhoneExposure(N_t, t_t, iso_t);
+  try {
+    await track.applyConstraints({ advanced: [{ exposureMode: 'manual', exposureTime: result.raw_p, iso: result.iso_p }] });
+    readout.innerHTML =
+      (result.warning ? `<span style="color:var(--bad);">⚠ ${result.warning}</span><br>` : '') +
+      `Target: f/${N_t}, ${formatShutter(t_t)}, ISO ${iso_t} → Phone: f/${PHONE_APERTURE} (fixed), ~${formatShutter(result.t_p)}, ISO ${Math.round(result.iso_p)}`;
+    logMsg(`Applied EV preview: raw exposureTime=${result.raw_p}, iso=${result.iso_p}`);
+  } catch (err) {
+    readout.innerHTML = `<span style="color:var(--bad);">applyConstraints failed: ${err.message}</span>`;
+    logMsg('applyEvPreviewFromFields FAILED: ' + err.message);
+  }
+}
+
+function setAvTvMode(mode) {
+  avTvMode = mode;
+  document.getElementById('avModeBtn').classList.toggle('active', mode === 'AV');
+  document.getElementById('tvModeBtn').classList.toggle('active', mode === 'TV');
+
+  const fixedLabel = document.getElementById('fixedFieldLabel');
+  const sliderLabel = document.getElementById('sliderFieldLabel');
+  const slider = document.getElementById('avTvSlider');
+  const fixedInput = document.getElementById('fixedValueInput');
+
+  if (mode === 'AV') {
+    fixedLabel.textContent = 'Fixed Shutter (sec)';
+    sliderLabel.textContent = 'Aperture';
+    slider.max = APERTURE_HALFSTOPS.length - 1;
+    fixedInput.placeholder = 'e.g. 1/125';
+  } else {
+    fixedLabel.textContent = 'Fixed Aperture (f/)';
+    sliderLabel.textContent = 'Shutter';
+    slider.max = SHUTTER_HALFSTOPS.length - 1;
+    fixedInput.placeholder = 'e.g. 8';
+  }
+  slider.value = Math.round(slider.max / 2);
+  updateAvTvSlider();
+}
+
+async function updateAvTvSlider() {
+  const slider = document.getElementById('avTvSlider');
+  const readout = document.getElementById('avTvReadout');
+  const sub = document.getElementById('avTvSub');
+  const idx = Number(slider.value);
+
+  let N_t, t_t;
+  const fixedRaw = document.getElementById('fixedValueInput').value;
+  const iso_t = parseFloat(document.getElementById('avTvIso').value);
+
+  if (avTvMode === 'AV') {
+    N_t = APERTURE_HALFSTOPS[idx];
+    t_t = parseShutterLike(fixedRaw);
+    readout.textContent = 'f/' + N_t;
+  } else {
+    N_t = parseFloat(fixedRaw);
+    t_t = SHUTTER_HALFSTOPS[idx];
+    readout.textContent = formatShutter(t_t);
+  }
+
+  if (isNaN(N_t) || isNaN(t_t) || isNaN(iso_t) || N_t <= 0 || t_t <= 0 || iso_t <= 0) {
+    sub.textContent = 'Fill in the fixed value and ISO to preview.';
+    return;
+  }
+  if (!calibration || !track) {
+    sub.textContent = 'Calibrate and start the camera first.';
+    return;
+  }
+
+  const result = computeAndApplyPhoneExposure(N_t, t_t, iso_t);
+  try {
+    await track.applyConstraints({ advanced: [{ exposureMode: 'manual', exposureTime: result.raw_p, iso: result.iso_p }] });
+    sub.textContent = (result.warning ? '⚠ ' + result.warning + ' — ' : '') +
+      `Phone: f/${PHONE_APERTURE} (fixed), ~${formatShutter(result.t_p)}, ISO ${Math.round(result.iso_p)}`;
+  } catch (err) {
+    sub.textContent = 'applyConstraints failed: ' + err.message;
+  }
+}
+
+const CALIB_LABELS = ['Point 1 — dim indoor room', 'Point 2 — normal indoor light', 'Point 3 — open shade outdoors', 'Point 4 — full sun outdoors'];
+const calibPoints = [null, null, null, null];
+
+function buildCalibPointsUI() {
+  const container = document.getElementById('calibPoints');
+  container.innerHTML = CALIB_LABELS.map((label, idx) => `
+    <div class="calib-point">
+      <div class="point-title">${label}</div>
+      <div class="grab-row">
+        <button type="button" class="grab-btn" onclick="grabCalibPoint(${idx})">Grab from camera</button>
+        <span class="grabbed" id="grabbed${idx}">not grabbed yet</span>
+      </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label>Sekonic shutter (sec)</label>
+          <input type="text" id="sekShutter${idx}" placeholder="e.g. 1/125">
+        </div>
+        <div class="field-group">
+          <label>Sekonic ISO</label>
+          <input type="text" id="sekIso${idx}" value="200">
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function grabCalibPoint(idx) {
+  if (!track) { alert('Start the camera first.'); return; }
+  const settings = track.getSettings ? track.getSettings() : {};
+  if (settings.exposureTime === undefined) {
+    alert('Camera did not report a current exposureTime. Tap "Reset to Auto Exposure" if you adjusted sliders earlier, then try again.');
+    return;
+  }
+  calibPoints[idx] = { rawExposureTime: settings.exposureTime, rawIso: settings.iso || null };
+  const label = document.getElementById('grabbed' + idx);
+  label.textContent = `grabbed: raw exposureTime=${settings.exposureTime}, raw iso=${settings.iso ?? 'n/a'}`;
+  label.classList.add('filled');
+  logMsg(`Calib point ${idx + 1} grabbed: ${JSON.stringify(calibPoints[idx])}`);
+}
+
+function skipCalibration() {
+  calibration = { secondsPerUnit: 0.0001, pointsUsed: 0, maxDeviationPct: 'N/A', isLinear: null, placeholder: true };
+  try { localStorage.setItem('exposureTestCalibration', JSON.stringify(calibration)); } catch (e) {}
+  document.getElementById('calibReadout').innerHTML =
+    '<span style="color:var(--bad); font-weight:800;">⚠ Placeholder calibration in use (assumed 100µs/unit) — not verified against Sekonic. Numbers shown are for testing the interface only, not real exposure values.</span>';
+  document.getElementById('previewSection').style.display = 'block';
+  document.getElementById('avTvSection').style.display = 'block';
+  setAvTvMode('AV');
+  logMsg('Calibration skipped — using placeholder 0.0001 sec/unit for testing.');
+}
+
+function computeCalibration() {
+  const factors = [];
+  const details = [];
+  for (let idx = 0; idx < 4; idx++) {
+    const grabbed = calibPoints[idx];
+    const sekShutter = parseShutterLike(document.getElementById('sekShutter' + idx).value);
+    const sekIso = parseFloat(document.getElementById('sekIso' + idx).value);
+
+    if (!grabbed) { details.push(`Point ${idx + 1}: not grabbed — skipped.`); continue; }
+    if (isNaN(sekShutter) || sekShutter <= 0) { details.push(`Point ${idx + 1}: missing/invalid Sekonic shutter — skipped.`); continue; }
+    if (isNaN(sekIso) || sekIso <= 0) { details.push(`Point ${idx + 1}: missing/invalid Sekonic ISO — skipped.`); continue; }
+    if (!grabbed.rawIso) { details.push(`Point ${idx + 1}: phone did not report ISO — skipped.`); continue; }
+
+    const factor = (sekShutter * sekIso) / (grabbed.rawExposureTime * grabbed.rawIso);
+    factors.push(factor);
+    details.push(`Point ${idx + 1}: raw=${grabbed.rawExposureTime} @ iso${grabbed.rawIso} vs Sekonic ${sekShutter}s @ iso${sekIso} → factor ${factor.toExponential(4)} sec/unit`);
+  }
+
+  const readout = document.getElementById('calibReadout');
+  if (factors.length < 2) {
+    readout.innerHTML = `Need at least 2 valid points to check linearity. So far:<br>${details.join('<br>')}`;
+    return;
+  }
+
+  const avg = factors.reduce((a, b) => a + b, 0) / factors.length;
+  const maxDev = Math.max(...factors.map(f => Math.abs(f - avg) / avg));
+  const isLinear = maxDev < 0.15;
+
+  calibration = { secondsPerUnit: avg, pointsUsed: factors.length, maxDeviationPct: (maxDev * 100).toFixed(1), isLinear };
+  try { localStorage.setItem('exposureTestCalibration', JSON.stringify(calibration)); } catch (e) {}
+
+  let html = details.join('<br>') + '<br><br>';
+  if (isLinear) {
+    html += `<span style="color:var(--good); font-weight:800;">✓ Consistent across all points (max deviation ${calibration.maxDeviationPct}%). Using average: ${avg.toExponential(4)} sec/unit.</span>`;
+    document.getElementById('previewSection').style.display = 'block';
+    document.getElementById('avTvSection').style.display = 'block';
+  } else {
+    html += `<span style="color:var(--bad); font-weight:800;">✗ Factor varies too much between light levels (${calibration.maxDeviationPct}% deviation) — suggests a non-linear raw scale. Don't trust the preview yet.</span>`;
+  }
+  readout.innerHTML = html;
+}
+
+async function startTest() {
+  const btn = document.getElementById('startBtn');
+  btn.disabled = true;
+  btn.textContent = 'Requesting camera…';
+  logMsg('Requesting camera access…');
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false
+    });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    video.style.display = 'block';
+    track = stream.getVideoTracks()[0];
+    logMsg('Camera stream acquired: ' + track.label);
+    btn.textContent = 'Camera running';
+
+    const caps = track.getCapabilities ? track.getCapabilities() : null;
+    logMsg('getCapabilities() result: ' + JSON.stringify(caps, null, 2));
+
+    const capsBox = document.getElementById('capsBox');
+    capsBox.style.display = 'block';
+
+    if (!caps) {
+      capsBox.innerHTML = '<span class="label">getCapabilities() is not supported at all in this browser.</span>';
+      showVerdict(false, 'This browser does not expose camera capability info. Manual exposure control is not available.');
+      return;
+    }
+
+    const hasExposureMode = caps.exposureMode && caps.exposureMode.includes('manual');
+    const hasExposureTime = !!caps.exposureTime;
+    const hasIso = !!caps.iso;
+
+    let html = '';
+    html += `<span class="label">exposureMode options:</span> <span class="val ${hasExposureMode ? 'good' : 'bad'}">${caps.exposureMode ? caps.exposureMode.join(', ') : 'not reported'}</span><br>`;
+    html += `<span class="label">exposureTime range:</span> <span class="val ${hasExposureTime ? 'good' : 'bad'}">${hasExposureTime ? caps.exposureTime.min + ' – ' + caps.exposureTime.max : 'not supported'}</span><br>`;
+    html += `<span class="label">iso range:</span> <span class="val ${hasIso ? 'good' : 'bad'}">${hasIso ? caps.iso.min + ' – ' + caps.iso.max : 'not supported'}</span><br>`;
+    capsBox.innerHTML = html;
+    deviceCaps.exposureTime = hasExposureTime ? caps.exposureTime : null;
+    deviceCaps.iso = hasIso ? caps.iso : null;
+
+    if (hasExposureMode && hasExposureTime) {
+      showVerdict(true, 'Manual exposure control IS supported on this phone/browser. Real hardware-level preview is technically possible here.');
+      document.getElementById('manualControlsCard').style.display = 'block';
+      document.getElementById('calibSection').style.display = 'block';
+      buildCalibPointsUI();
+      if (calibration) {
+        if (calibration.placeholder) {
+          document.getElementById('calibReadout').innerHTML =
+            '<span style="color:var(--bad); font-weight:800;">⚠ Placeholder calibration in use (assumed 100µs/unit) — not verified against Sekonic. Testing only.</span>';
+        } else {
+          document.getElementById('calibReadout').innerHTML =
+            `Loaded saved calibration: <b>${calibration.secondsPerUnit.toExponential(4)} sec/unit</b> (from ${calibration.pointsUsed} points, ${calibration.maxDeviationPct}% max deviation). You can re-calibrate any time.`;
+        }
+        document.getElementById('previewSection').style.display = 'block';
+        document.getElementById('avTvSection').style.display = 'block';
+        setAvTvMode('AV');
+      }
+      setupExposureTimeSlider(caps.exposureTime);
+      if (hasIso) setupIsoSlider(caps.iso);
+      document.getElementById('autoBtn').style.display = 'block';
+
+      const avSlider = document.getElementById('avTvSlider');
+      avSlider.addEventListener('input', updateAvTvSlider);
+      document.getElementById('fixedValueInput').addEventListener('input', updateAvTvSlider);
+      document.getElementById('avTvIso').addEventListener('input', updateAvTvSlider);
+    } else if (hasExposureMode && hasIso && !hasExposureTime) {
+      showVerdict(false, 'Only ISO can be controlled manually, not exposure time. Not enough for a real exposure preview.');
+      document.getElementById('manualControlsCard').style.display = 'block';
+      setupIsoSlider(caps.iso);
+    } else {
+      showVerdict(false, 'Manual exposure control is NOT supported on this phone/browser. A hardware-based preview is not possible here.');
+    }
+  } catch (err) {
+    logMsg('ERROR: ' + err.name + ' — ' + err.message);
+    showVerdict(false, 'Could not access the camera (' + err.name + '). Test inconclusive.');
+    btn.disabled = false;
+    btn.textContent = 'Start Camera Test';
+  }
+}
+
+function showVerdict(isGood, text) {
+  const el = document.getElementById('verdict');
+  el.className = 'verdict ' + (isGood ? 'good' : 'bad');
+  el.textContent = (isGood ? '✓ ' : '✗ ') + text;
+  el.style.display = 'block';
+}
+
+function setupExposureTimeSlider(range) {
+  const group = document.getElementById('exposureTimeGroup');
+  const slider = document.getElementById('exposureTimeSlider');
+  const readout = document.getElementById('exposureTimeReadout');
+  group.style.display = 'block';
+  slider.min = range.min;
+  slider.max = range.max;
+  slider.step = range.step || 1;
+  slider.value = range.min + (range.max - range.min) / 2;
+  readout.textContent = slider.value;
+
+  slider.addEventListener('input', async () => {
+    readout.textContent = slider.value;
+    try {
+      await track.applyConstraints({ advanced: [{ exposureMode: 'manual', exposureTime: Number(slider.value) }] });
+    } catch (err) {
+      logMsg('applyConstraints exposureTime FAILED: ' + err.message);
+    }
+  });
+}
+
+function setupIsoSlider(range) {
+  const group = document.getElementById('isoGroup');
+  const slider = document.getElementById('isoSlider');
+  const readout = document.getElementById('isoReadout');
+  group.style.display = 'block';
+  slider.min = range.min;
+  slider.max = range.max;
+  slider.step = range.step || 1;
+  slider.value = range.min + (range.max - range.min) / 2;
+  readout.textContent = slider.value;
+
+  slider.addEventListener('input', async () => {
+    readout.textContent = slider.value;
+    try {
+      await track.applyConstraints({ advanced: [{ exposureMode: 'manual', iso: Number(slider.value) }] });
+    } catch (err) {
+      logMsg('applyConstraints iso FAILED: ' + err.message);
+    }
+  });
+}
+
+async function resetToAuto() {
+  try {
+    await track.applyConstraints({ advanced: [{ exposureMode: 'continuous' }] });
+    logMsg('Reset to auto exposure.');
+  } catch (err) {
+    logMsg('Reset FAILED: ' + err.message);
+  }
+}
+</script>
+
+</body>
+</html>
