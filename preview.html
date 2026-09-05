@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Exposure Preview</title>
+<style>
+  :root {
+    --ink: #f5f5f5; --paper: #0a0a0a; --surface: #161616; --field: #1e1e1e;
+    --line: #2c2c2c; --accent: #ff8a3d; --muted: #a8a8a8; --good: #4ade80; --bad: #f87171;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 20px 16px 60px; background: var(--paper); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px; -webkit-font-smoothing: antialiased;
+  }
+  h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 16px; }
+
+  video { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 12px; background: #000; margin-bottom: 14px; display: none; border: 1.5px solid var(--accent); }
+
+  button.big, label.big {
+    display: block; width: 100%; font-family: inherit; font-size: 15px; font-weight: 800;
+    padding: 14px; border-radius: 10px; border: 1.5px solid var(--accent); background: transparent; color: var(--accent);
+    cursor: pointer; margin-bottom: 14px; box-sizing: border-box;
+  }
+
+  .field-row { display: flex; gap: 8px; margin-bottom: 14px; }
+  .field-row .field { flex: 1; text-align: center; }
+  .field-row label { display: block; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+  input[type="text"] {
+    width: 100%; font-family: inherit; font-size: 16px; font-weight: 600; padding: 10px;
+    border: 1.5px solid var(--line); border-radius: 10px; background: var(--field); color: var(--ink); text-align: center;
+  }
+  input[type="text"]:focus { border-color: var(--ink); outline: none; }
+  input[type="text"]:disabled { color: var(--accent); opacity: 0.85; }
+
+  .wheelHeader { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 16px; }
+  .wheelToggle { display: flex; background: var(--field); border-radius: 20px; padding: 3px; border: 1px solid var(--line); }
+  .wheelToggle button {
+    border: none; background: transparent; color: var(--muted); font-family: inherit;
+    font-size: 12px; letter-spacing: .08em; padding: 7px 16px; border-radius: 16px; cursor: pointer;
+  }
+  .wheelToggle button.active { background: var(--accent); color: #0a0a0a; font-weight: 700; }
+  .evToggleBtn {
+    border: 1.5px solid var(--line); background: var(--field); color: var(--muted);
+    font-family: inherit; font-size: 12px; font-weight: 700; padding: 8px 14px; border-radius: 20px; cursor: pointer;
+  }
+  .evToggleBtn.active { border-color: var(--accent); color: var(--accent); }
+
+  .slider-row { display: flex; align-items: center; gap: 12px; }
+  .slider-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .slider-row .readout { font-weight: 800; font-size: 18px; min-width: 78px; text-align: right; color: var(--accent); }
+  .ev-readout { text-align: right; font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  .no-calib { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; font-size: 14px; color: var(--muted); text-align: center; }
+  .no-calib a { color: var(--accent); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<h1>Exposure Preview</h1>
+
+<div id="app">
+  <video id="video" autoplay playsinline muted></video>
+  <button class="big" onclick="resetToAuto()" style="border-color:var(--line); color:var(--muted);">Reset to Auto Exposure</button>
+
+  <div class="field-row">
+    <div class="field"><label>ISO</label><input type="text" id="isoInput" value="400"></div>
+    <div class="field"><label>Aperture</label><input type="text" id="apertureInput" value="8"></div>
+    <div class="field"><label>Shutter</label><input type="text" id="shutterInput" value="1/125"></div>
+  </div>
+
+  <button class="big" id="saveBtn" onclick="saveReference()">Save</button>
+
+  <label for="loadValuesInput" style="display:block; width:100%; font-family:inherit; font-size:12px; font-weight:700; padding:8px; border-radius:8px; border:1px solid var(--line); background:transparent; color:var(--muted); cursor:pointer; margin-bottom:14px; text-align:center; box-sizing:border-box;">Load from file</label>
+  <input type="file" id="loadValuesInput" accept="application/json" style="display:none;" onchange="loadValuesFile(this)">
+
+  <div class="wheelHeader">
+    <div class="wheelToggle">
+      <button type="button" id="btnTv">TV</button>
+      <button type="button" id="btnAv" class="active">AV</button>
+    </div>
+    <button type="button" class="evToggleBtn" id="evBtn" onclick="toggleEv()">EV</button>
+  </div>
+
+  <div class="slider-row">
+    <input type="range" id="slider" min="0" max="18" step="1" value="8">
+    <span class="readout" id="readout">f/8</span>
+  </div>
+  <div class="ev-readout" id="evReadout" style="display:none;"></div>
+</div>
+
+<script>
+const PHONE_APERTURE = 1.65; // Redmi Note 13 Pro 5G main camera
+const APERTURE_HALFSTOPS = [32, 27, 22, 19, 16, 13, 11, 9.5, 8, 6.7, 5.6, 4.8, 4, 3.5, 2.8, 2.4, 2, 1.7, 1.4];
+const SHUTTER_HALFSTOPS = (() => {
+  const fullStops = [1/4000, 1/2000, 1/1000, 1/500, 1/250, 1/125, 1/60, 1/30, 1/15, 1/8, 1/4, 1/2, 1, 2, 4];
+  const out = [];
+  fullStops.forEach((v, i) => { out.push(v); if (i < fullStops.length - 1) out.push(Math.sqrt(v * fullStops[i + 1])); });
+  return out;
+})();
+
+function formatShutter(sec) { return sec >= 1 ? sec.toFixed(sec >= 10 ? 0 : 1) + 's' : '1/' + Math.round(1 / sec); }
+function parseShutterLike(str) {
+  str = (str || '').trim();
+  if (!str) return NaN;
+  if (str.includes('/')) { const p = str.split('/'); return parseFloat(p[0]) / parseFloat(p[1]); }
+  return parseFloat(str);
+}
+
+let reference = null; // { rawExposureTime, rawIso, N, t, iso } — the saved/applied baseline pair
+
+let track = null;
+let mode = 'AV';
+let evOn = false;
+let hasUserInteracted = false;
+let pendingBundle = null; // a saved bundle waiting for the camera to finish starting
+
+function applyBundle(bundle) {
+  document.getElementById('isoInput').value = bundle.iso;
+  document.getElementById('apertureInput').value = bundle.aperture;
+  document.getElementById('shutterInput').value = bundle.shutter;
+  reference = {
+    rawExposureTime: bundle.rawExposureTime,
+    rawIso: bundle.rawIso,
+    N: parseFloat(bundle.aperture),
+    t: parseShutterLike(bundle.shutter),
+    iso: parseFloat(bundle.iso)
+  };
+  hasUserInteracted = true;
+  recompute();
+}
+
+function persistBundle(bundle) {
+  try { localStorage.setItem('exposurePreviewBundle', JSON.stringify(bundle)); } catch (e) {}
+  try {
+    const blob = new Blob([JSON.stringify(bundle)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'exposure_preview_settings.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {}
+}
+
+// "Save" does both jobs at once: grab a fresh auto-exposure reading right now, pair it
+// with whatever is currently in the three fields, apply it immediately, and persist the
+// whole pair for next time — so next launch can skip re-metering entirely.
+// Polls getSettings() until two consecutive readings are within 8% of each other (i.e.
+// auto-exposure has stopped actively adjusting), or gives up after ~2.5 seconds and
+// returns whatever the last reading was.
+async function waitForSettledExposure() {
+  let last = track.getSettings ? track.getSettings() : {};
+  const start = Date.now();
+  while (Date.now() - start < 2500) {
+    await new Promise(resolve => setTimeout(resolve, 150));
+    const current = track.getSettings ? track.getSettings() : {};
+    if (last.exposureTime && current.exposureTime) {
+      const changeRatio = Math.abs(current.exposureTime - last.exposureTime) / last.exposureTime;
+      if (changeRatio < 0.08) return current;
+    }
+    last = current;
+  }
+  return last;
+}
+
+async function saveReference() {
+  const btn = document.getElementById('saveBtn');
+  if (!track) { alert('Camera not ready yet.'); return; }
+  const N = parseFloat(document.getElementById('apertureInput').value);
+  const t = parseShutterLike(document.getElementById('shutterInput').value);
+  const iso = parseFloat(document.getElementById('isoInput').value);
+  if (isNaN(N) || isNaN(t) || isNaN(iso)) { alert('Fill in ISO, aperture and shutter first.'); return; }
+
+  // Force a genuinely fresh, SETTLED auto-exposure reading. A fixed short delay isn't
+  // enough for very dark scenes, where auto-exposure can take much longer to ramp up —
+  // so instead we poll until two consecutive readings are close, or give up after 2.5s.
+  try { await track.applyConstraints({ advanced: [{ exposureMode: 'continuous' }] }); } catch (err) {}
+  const s = await waitForSettledExposure();
+  if (s.exposureTime === undefined) { alert('Could not read a fresh exposure reading.'); return; }
+
+  const bundle = { iso: String(iso), aperture: String(N), shutter: document.getElementById('shutterInput').value, rawExposureTime: s.exposureTime, rawIso: s.iso || 100 };
+  applyBundle(bundle);
+  persistBundle(bundle);
+
+  const original = btn.textContent;
+  btn.textContent = 'Saved ✓';
+  setTimeout(() => { btn.textContent = original; }, 1200);
+}
+
+function loadValuesFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const bundle = JSON.parse(e.target.result);
+      try { localStorage.setItem('exposurePreviewBundle', JSON.stringify(bundle)); } catch (err) {}
+      if (track) applyBundle(bundle); else pendingBundle = bundle;
+    } catch (err) {
+      alert('Could not read this settings file.');
+    }
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+
+// Camera starts automatically on page load — no separate "Start Camera" tap needed.
+(async function autoStartCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    video.style.display = 'block';
+    video.play().catch(() => {});
+    track = stream.getVideoTracks()[0];
+    if (pendingBundle) { applyBundle(pendingBundle); pendingBundle = null; }
+  } catch (err) {
+    document.getElementById('video').outerHTML = '<div class="no-calib">Camera access failed or denied.</div>';
+  }
+})();
+
+// Load whatever was saved last time immediately — applied once the camera is ready.
+(function autoLoadBundle() {
+  try {
+    const saved = localStorage.getItem('exposurePreviewBundle');
+    if (!saved) return;
+    const bundle = JSON.parse(saved);
+    document.getElementById('isoInput').value = bundle.iso;
+    document.getElementById('apertureInput').value = bundle.aperture;
+    document.getElementById('shutterInput').value = bundle.shutter;
+    if (track) applyBundle(bundle); else pendingBundle = bundle;
+  } catch (e) {}
+})();
+
+// Ratio-based: no calibration needed. Scales the phone's auto-exposure reading by the
+// same light-stop ratio between the target settings and the settings entered at the
+// moment "Save" was pressed. Phone's own aperture and raw-unit meaning cancel out.
+function computeAndApplyPhoneExposure(N_t, t_t, iso_t) {
+  const H_ref = reference.t * reference.iso / (reference.N * reference.N);
+  const H_target = t_t * iso_t / (N_t * N_t);
+  const ratio = H_target / H_ref;
+  // Keep the phone's own ISO exactly as auto-exposure chose it at the reference moment —
+  // never mix it with the user's metered ISO (different unit spaces). Only exposure time
+  // carries the full ratio, so at the reference point (ratio=1) nothing changes at all.
+  const iso_p = reference.rawIso;
+  const raw_p = reference.rawExposureTime * ratio;
+  return { iso_p, raw_p };
+}
+
+function computeEV(N, t, iso) { return Math.log2((N * N * iso) / (100 * t)); }
+
+async function recompute() {
+  const N = parseFloat(document.getElementById('apertureInput').value);
+  const t = parseShutterLike(document.getElementById('shutterInput').value);
+  const iso = parseFloat(document.getElementById('isoInput').value);
+  document.getElementById('readout').textContent = mode === 'AV' ? ('f/' + N) : formatShutter(t);
+
+  if (evOn && !isNaN(N) && !isNaN(t) && !isNaN(iso)) {
+    document.getElementById('evReadout').style.display = 'block';
+    document.getElementById('evReadout').textContent = 'EV ' + computeEV(N, t, iso).toFixed(1);
+  } else {
+    document.getElementById('evReadout').style.display = 'none';
+  }
+
+  if (!track || !reference || !hasUserInteracted || isNaN(N) || isNaN(t) || isNaN(iso)) return;
+  const result = computeAndApplyPhoneExposure(N, t, iso);
+  try {
+    await track.applyConstraints({ advanced: [{ exposureMode: 'manual', exposureTime: result.raw_p, iso: result.iso_p }] });
+  } catch (err) {}
+}
+
+document.getElementById('isoInput').addEventListener('input', () => { hasUserInteracted = true; recompute(); });
+document.getElementById('apertureInput').addEventListener('input', () => { hasUserInteracted = true; recompute(); });
+document.getElementById('shutterInput').addEventListener('input', () => { hasUserInteracted = true; recompute(); });
+
+document.getElementById('slider').addEventListener('input', () => {
+  const idx = Number(document.getElementById('slider').value);
+  if (mode === 'AV') {
+    document.getElementById('apertureInput').value = APERTURE_HALFSTOPS[idx];
+  } else {
+    document.getElementById('shutterInput').value = formatShutter(SHUTTER_HALFSTOPS[idx]);
+  }
+  hasUserInteracted = true;
+  recompute();
+});
+
+document.getElementById('btnTv').addEventListener('click', () => {
+  mode = 'TV';
+  document.getElementById('btnTv').classList.add('active');
+  document.getElementById('btnAv').classList.remove('active');
+  const slider = document.getElementById('slider');
+  slider.max = SHUTTER_HALFSTOPS.length - 1;
+  const t = parseShutterLike(document.getElementById('shutterInput').value);
+  let closest = 0, closestDiff = Infinity;
+  SHUTTER_HALFSTOPS.forEach((v, i) => { const d = Math.abs(v - t); if (d < closestDiff) { closestDiff = d; closest = i; } });
+  slider.value = closest;
+  recompute();
+});
+document.getElementById('btnAv').addEventListener('click', () => {
+  mode = 'AV';
+  document.getElementById('btnAv').classList.add('active');
+  document.getElementById('btnTv').classList.remove('active');
+  const slider = document.getElementById('slider');
+  slider.max = APERTURE_HALFSTOPS.length - 1;
+  const N = parseFloat(document.getElementById('apertureInput').value);
+  let closest = 0, closestDiff = Infinity;
+  APERTURE_HALFSTOPS.forEach((v, i) => { const d = Math.abs(v - N); if (d < closestDiff) { closestDiff = d; closest = i; } });
+  slider.value = closest;
+  recompute();
+});
+
+async function resetToAuto() {
+  if (!track) return;
+  try {
+    await track.applyConstraints({ advanced: [{ exposureMode: 'continuous' }] });
+  } catch (err) {}
+}
+
+function toggleEv() {
+  evOn = !evOn;
+  document.getElementById('evBtn').classList.toggle('active', evOn);
+  recompute();
+}
+</script>
+
+</body>
+</html>
