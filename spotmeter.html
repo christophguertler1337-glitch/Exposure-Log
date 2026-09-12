@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Spot Meter — standalone test</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --surface: #1a1a1a;
+    --field: #111;
+    --line: #333;
+    --ink: #fff;
+    --muted: #888;
+    --accent: #ff8a3d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    padding: 16px;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 800;
+    margin: 0 0 4px;
+  }
+  .sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 0 0 16px;
+  }
+  .card {
+    background: var(--surface);
+    border-radius: 14px;
+    padding: 14px;
+  }
+  .cam-wrap {
+    position: relative;
+    margin-bottom: 12px;
+  }
+  video {
+    width: 100%;
+    aspect-ratio: 4/3;
+    object-fit: cover;
+    border-radius: 12px;
+    background: #000;
+    border: 1.5px solid var(--accent);
+    display: block;
+  }
+  .spot-circle {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 15%;
+    aspect-ratio: 1;
+    max-width: 60px;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 0 2000px rgba(0,0,0,0.35);
+    pointer-events: none;
+  }
+  .zoom-btn {
+    position: absolute;
+    top: 8px; right: 8px;
+    background: rgba(0,0,0,0.65);
+    border: 1px solid #555;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 10px;
+    border-radius: 20px;
+    cursor: pointer;
+  }
+  .cam-status {
+    position: absolute;
+    bottom: 8px; left: 0; right: 0;
+    text-align: center;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  button.primary {
+    width: 100%;
+    background: var(--accent);
+    color: #1a1a1a;
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    font-weight: 800;
+    font-size: 14px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button.primary:disabled {
+    opacity: 0.5;
+  }
+  .scale-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .scale-label {
+    font-size: 13px;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #ccc;
+    padding-left: 9px;
+    border-left: 3px solid var(--accent);
+  }
+  .mode-toggle {
+    display: flex;
+    background: var(--field);
+    border-radius: 7px;
+    padding: 2px;
+  }
+  .mode-toggle button {
+    padding: 4px 10px;
+    border: none;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .mode-toggle button.active {
+    background: var(--accent);
+    color: #1a1a1a;
+  }
+  #scaleLane {
+    position: relative;
+    height: 60px;
+    touch-action: none;
+    cursor: grab;
+  }
+  .spread-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 10px 0 4px;
+  }
+  #spreadLine {
+    font-size: 11px;
+    color: var(--muted);
+    display: none;
+  }
+  #autoSortIcon {
+    background: none;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    color: var(--accent);
+  }
+  #rowsContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .reading-row {
+    display: flex;
+    align-items: stretch;
+    border-radius: 7px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .reading-row .num {
+    background: var(--accent);
+    color: #1a1a1a;
+    font-size: 14px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    flex-shrink: 0;
+  }
+  .reading-row.dim .num { background: #333; color: #888; }
+  .reading-row .zone {
+    display: flex;
+    align-items: center;
+    color: var(--muted);
+    font-size: 11px;
+    width: 52px;
+    padding-left: 8px;
+    background: var(--field);
+  }
+  .reading-row .value {
+    display: flex;
+    align-items: center;
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 700;
+    flex: 1;
+    background: var(--field);
+  }
+  .reading-row.dim .value { color: #666; }
+  .reading-row .ev {
+    display: flex;
+    align-items: center;
+    color: #aaa;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 0 8px;
+    background: var(--field);
+    white-space: nowrap;
+  }
+  .reading-row .shm {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+    width: 24px;
+    background: var(--field);
+  }
+  .empty-hint {
+    text-align: center;
+    color: #666;
+    font-size: 11px;
+    padding: 8px 0;
+  }
+  .debug {
+    margin-top: 16px;
+    font-size: 11px;
+    color: #555;
+    white-space: pre-wrap;
+    font-family: monospace;
+  }
+</style>
+</head>
+<body>
+
+<h1>Spot Meter — standalone test</h1>
+<p class="sub">Test module. Once verified, this gets folded into the main app as a new Tools entry.</p>
+
+<div class="card">
+
+  <div class="cam-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="spot-circle"></div>
+    <button class="zoom-btn" id="zoomBtn" style="display:none;">1.0x</button>
+    <div class="cam-status" id="camStatus">Starting camera…</div>
+  </div>
+
+  <button class="primary" id="measureBtn" disabled>Measure</button>
+
+  <div class="scale-header">
+    <span class="scale-label">Scale</span>
+    <div class="mode-toggle">
+      <button id="modeAv" class="active">Aperture</button>
+      <button id="modeTv">Shutter</button>
+    </div>
+  </div>
+
+  <div id="scaleLane">
+    <div id="markerLayer" style="position:absolute; bottom:28px; left:0; right:0; height:12px;"></div>
+    <div style="position:absolute; bottom:28px; left:0; right:0; height:2px; background:#444;"></div>
+    <div id="scrollLayer" style="position:absolute; bottom:0; left:0; right:0;"></div>
+  </div>
+
+  <div class="spread-row">
+    <span id="spreadLine">Spread: <b id="spreadValue" style="color:var(--accent);">—</b> stops</span>
+    <span style="flex:1;"></span>
+    <button id="autoSortIcon" title="Auto Sort">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 6h13M3 12h9M3 18h5"/><path d="M18 9l3-3 3 3"/><path d="M21 6v13"/>
+      </svg>
+    </button>
+  </div>
+
+  <div id="rowsContainer"></div>
+
+  <div class="debug" id="debugLine"></div>
+
+</div>
+
+<script>
+// ===================== Scale / marker data model =====================
+const apertures = ['1','1.4','2','2.8','4','5.6','8','11','16','22','32','45','64'];
+const shutters  = ['1','1/2','1/4','1/8','1/15','1/30','1/60','1/125','1/250','1/500','1/1000','1/2000','1/4000'];
+const zoneNames = ['0','I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII'];
+let currentScale = apertures;
+let currentUnit = 'aperture';
+const BASE_COLW = 32;
+const CENTER_INDEX = 6; // full-stop array index that sits at scaleOffset=0
+
+let scaleOffset = 0;      // half-stop units, always even (drag snaps to full stops) — your manual placement
+let markerCenterOffset = 0; // auto-recomputed after every measurement, display-only, never touches scaleOffset
+let colW = BASE_COLW;
+let autoSort = true;
+let readings = [];        // [{num, halfStops}] — halfStops relative to the fixed exposure lock, half-stop resolution
+let awaitingRemeasureNum = null;
+let nextNum = 1;
+
+function laneWidth() { return document.getElementById('scaleLane').clientWidth; }
+
+function sortedForDisplay() {
+  const arr = readings.slice();
+  if (autoSort) arr.sort((a, b) => a.halfStops - b.halfStops);
+  return arr;
+}
+function shmLabel(sortedIdx, total) {
+  if (total < 3) return null;
+  if (sortedIdx === 0) return 'S';
+  if (sortedIdx === total - 1) return 'H';
+  return 'M';
+}
+
+function recomputeLayout() {
+  const vals = readings.map(r => r.halfStops);
+  if (vals.length === 0) { markerCenterOffset = 0; colW = BASE_COLW; return; }
+  const min = Math.min(...vals), max = Math.max(...vals);
+  // Rounded to a whole half-stop unit so markers always land exactly on the tick grid —
+  // a fractional offset here was the earlier bug that put markers between grid lines.
+  markerCenterOffset = Math.round(-(min + max) / 2);
+  const spread = max - min;
+  const width = laneWidth();
+  const margin = 36;
+  const maxColW = spread > 0 ? (width / 2 - margin) / (spread / 2) : BASE_COLW;
+  colW = Math.min(BASE_COLW, Math.max(11, maxColW));
+}
+
+function renderScrollLayer() {
+  const width = laneWidth();
+  const layer = document.getElementById('scrollLayer');
+  layer.innerHTML = '';
+  const half = Math.ceil(width / (2 * colW)) + 2;
+  for (let i = -half; i <= half; i++) {
+    const x = width / 2 + i * colW;
+    const isFull = (i % 2 === 0);
+    const tick = document.createElement('div');
+    tick.style.cssText = `position:absolute; left:${x}px; bottom:30px; width:1px; height:${isFull ? 5 : 3}px; background:#555; transform:translateX(-50%);`;
+    layer.appendChild(tick);
+    if (isFull) {
+      const idx = CENTER_INDEX + (i / 2) - (scaleOffset / 2);
+      if (idx < 0 || idx >= currentScale.length) continue;
+      const lbl = document.createElement('div');
+      lbl.style.cssText = `position:absolute; left:${x}px; bottom:13px; transform:translateX(-50%); font-size:11px; color:#ccc; font-weight:600; white-space:nowrap;`;
+      lbl.textContent = currentScale[idx];
+      layer.appendChild(lbl);
+      const zone = document.createElement('div');
+      zone.style.cssText = `position:absolute; left:${x}px; bottom:0; transform:translateX(-50%); font-size:9px; color:#666;`;
+      zone.textContent = zoneNames[idx];
+      layer.appendChild(zone);
+    }
+  }
+}
+
+function renderMarkers() {
+  const width = laneWidth();
+  const layer = document.getElementById('markerLayer');
+  layer.innerHTML = '';
+  const sorted = sortedForDisplay();
+  readings.forEach(r => {
+    const x = width / 2 + (r.halfStops + markerCenterOffset) * colW;
+    const dim = (awaitingRemeasureNum === r.num);
+    const dot = document.createElement('div');
+    dot.style.cssText = `position:absolute; bottom:0; left:${x}px; width:2px; height:12px; background:${dim ? '#555' : 'var(--accent)'}; transform:translateX(-50%); border-radius:2px;`;
+    layer.appendChild(dot);
+    const tag = document.createElement('div');
+    tag.style.cssText = `position:absolute; bottom:13px; left:${x}px; transform:translateX(-50%); font-size:8px; color:#888; font-weight:700;`;
+    const sortedIdx = sorted.findIndex(s => s.num === r.num);
+    const shm = autoSort ? shmLabel(sortedIdx, sorted.length) : null;
+    tag.textContent = shm || r.num;
+    layer.appendChild(tag);
+  });
+}
+
+function valueLabelAt(halfStops) {
+  const idx = CENTER_INDEX + Math.round(halfStops / 2) - (scaleOffset / 2);
+  const clamped = Math.max(0, Math.min(currentScale.length - 1, idx));
+  return currentScale[clamped];
+}
+// EV shown is relative to wherever Zone V currently sits on the scale (i.e. relative to
+// your placement), computed straight from the real half-stop measurement — not a demo
+// placeholder value.
+function evLabelAt(halfStops) {
+  const stops = halfStops / 2;
+  return (stops >= 0 ? '+' : '') + stops.toFixed(1) + ' EV';
+}
+
+function renderRows() {
+  const container = document.getElementById('rowsContainer');
+  container.innerHTML = '';
+  const display = sortedForDisplay();
+  if (display.length === 0) {
+    container.innerHTML = '<div class="empty-hint">No readings yet.</div>';
+    return;
+  }
+  display.forEach((r, i) => {
+    const shm = autoSort ? shmLabel(i, display.length) : null;
+    const row = document.createElement('div');
+    row.className = 'reading-row' + (awaitingRemeasureNum === r.num ? ' dim' : '');
+    const unitPrefix = currentUnit === 'aperture' ? 'f/' : '';
+    const unitSuffix = currentUnit === 'shutter' ? 's' : '';
+    row.innerHTML = `
+      <span class="num">${r.num}</span>
+      <span class="zone">Zone ${zoneNames[Math.max(0, Math.min(zoneNames.length - 1, CENTER_INDEX + Math.round(r.halfStops / 2) - (scaleOffset / 2)))]}</span>
+      <span class="value">${unitPrefix}${valueLabelAt(r.halfStops)}${unitSuffix}</span>
+      <span class="ev">${evLabelAt(r.halfStops)}</span>
+      <span class="shm">${shm || ''}</span>
+    `;
+    row.addEventListener('click', () => {
+      awaitingRemeasureNum = (awaitingRemeasureNum === r.num) ? null : r.num;
+      renderMarkers();
+      renderRows();
+    });
+    container.appendChild(row);
+  });
+}
+
+function updateSpread() {
+  const vals = readings.map(r => r.halfStops);
+  const spreadLine = document.getElementById('spreadLine');
+  if (vals.length >= 2) {
+    const stops = (Math.max(...vals) - Math.min(...vals)) / 2;
+    document.getElementById('spreadValue').textContent = stops.toFixed(1);
+    spreadLine.style.display = 'inline';
+  } else {
+    spreadLine.style.display = 'none';
+  }
+}
+
+function fullRender() {
+  recomputeLayout();
+  renderScrollLayer();
+  renderMarkers();
+  renderRows();
+  updateSpread();
+}
+
+// ===================== Camera + real spot metering =====================
+// Same calibration principle as Exposure Preview: read the camera's own settled
+// auto-exposure result once, then lock the sensor into manual mode at that exact
+// exposure so every subsequent reading is measuring the SAME fixed exposure — only the
+// scene brightness at the spot varies between readings. Without this lock, the phone's
+// own auto-exposure would silently re-expose the whole frame differently every time you
+// point it somewhere new, making readings incomparable.
+let track = null;
+let referenceLocked = false;
+
+async function startCamera() {
+  const status = document.getElementById('camStatus');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    track = stream.getVideoTracks()[0];
+    await video.play().catch(() => {});
+    setupZoom(video);
+    status.textContent = 'Locking exposure reference…';
+    await lockExposureReference();
+    status.textContent = '';
+    document.getElementById('measureBtn').disabled = false;
+  } catch (err) {
+    status.textContent = 'Camera error: ' + err.message;
+  }
+}
+
+async function waitForSettledExposure() {
+  let last = track.getSettings ? track.getSettings() : {};
+  const start = Date.now();
+  while (Date.now() - start < 2500) {
+    await new Promise(r => setTimeout(r, 150));
+    const current = track.getSettings ? track.getSettings() : {};
+    if (last.exposureTime && current.exposureTime) {
+      const changeRatio = Math.abs(current.exposureTime - last.exposureTime) / last.exposureTime;
+      if (changeRatio < 0.08) return current;
+    }
+    last = current;
+  }
+  return last;
+}
+
+async function lockExposureReference() {
+  try { await track.applyConstraints({ advanced: [{ exposureMode: 'continuous' }] }); } catch (e) {}
+  const settled = await waitForSettledExposure();
+  if (settled.exposureTime === undefined) {
+    document.getElementById('camStatus').textContent = 'This browser/device does not expose manual exposure control — spot metering needs it to give comparable readings.';
+    return;
+  }
+  try {
+    await track.applyConstraints({ advanced: [{ exposureMode: 'manual', exposureTime: settled.exposureTime, iso: settled.iso || 100 }] });
+    referenceLocked = true;
+  } catch (e) {
+    document.getElementById('camStatus').textContent = 'Could not lock manual exposure: ' + e.message;
+  }
+}
+
+// Samples the luminance of only the center circle region, not the whole frame.
+function sampleSpotLuminance(video) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 48;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  // Center crop — roughly matches the visual spot circle's proportion of the frame.
+  const cropW = Math.round(canvas.width * 0.22);
+  const cropH = Math.round(canvas.height * 0.22 * (canvas.width / canvas.height));
+  const cx = Math.round((canvas.width - cropW) / 2);
+  const cy = Math.round((canvas.height - cropH) / 2);
+  const data = ctx.getImageData(cx, cy, cropW, cropH).data;
+  let sum = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+  }
+  return sum / (data.length / 4);
+}
+
+let firstReadingLuminance = null; // anchor for converting luminance ratios into half-stops
+
+async function takeMeasurement() {
+  const video = document.getElementById('video');
+  if (!referenceLocked) {
+    document.getElementById('camStatus').textContent = 'Exposure reference not locked — cannot take a comparable reading.';
+    return null;
+  }
+  await new Promise(r => requestAnimationFrame(r));
+  const lum = sampleSpotLuminance(video);
+  if (firstReadingLuminance === null) firstReadingLuminance = lum;
+  const stops = Math.log2(lum / firstReadingLuminance);
+  const halfStops = Math.round(stops * 2);
+  document.getElementById('debugLine').textContent = `raw luminance: ${lum.toFixed(1)} | vs anchor: ${firstReadingLuminance.toFixed(1)} | ${stops.toFixed(2)} stops`;
+  return halfStops;
+}
+
+function nextEmptySlot() { return [1, 2, 3].find(n => !readings.some(r => r.num === n)) || null; }
+
+document.getElementById('measureBtn').addEventListener('click', async () => {
+  document.getElementById('measureBtn').disabled = true;
+  const halfStops = await takeMeasurement();
+  document.getElementById('measureBtn').disabled = false;
+  if (halfStops === null) return;
+
+  if (awaitingRemeasureNum !== null) {
+    const r = readings.find(r => r.num === awaitingRemeasureNum);
+    r.halfStops = halfStops;
+    awaitingRemeasureNum = null;
+  } else if (readings.length >= 3) {
+    // 4th measurement with all 3 slots full: auto-reset and start a fresh set.
+    readings = [{ num: 1, halfStops }];
+    firstReadingLuminance = null; // re-anchor to this fresh reading
+    nextNum = 2;
+  } else {
+    readings.push({ num: nextNum, halfStops });
+    nextNum++;
+  }
+  fullRender();
+});
+
+document.getElementById('autoSortIcon').addEventListener('click', () => {
+  autoSort = !autoSort;
+  document.getElementById('autoSortIcon').style.color = autoSort ? 'var(--accent)' : '#666';
+  renderMarkers();
+  renderRows();
+});
+
+document.getElementById('modeAv').addEventListener('click', () => {
+  currentScale = apertures; currentUnit = 'aperture';
+  document.getElementById('modeAv').classList.add('active');
+  document.getElementById('modeTv').classList.remove('active');
+  renderScrollLayer(); renderRows();
+});
+document.getElementById('modeTv').addEventListener('click', () => {
+  currentScale = shutters; currentUnit = 'shutter';
+  document.getElementById('modeTv').classList.add('active');
+  document.getElementById('modeAv').classList.remove('active');
+  renderScrollLayer(); renderRows();
+});
+
+// Drag the scale — snaps to FULL stops (2 half-stop columns), independent of the
+// half-stop-resolution markers themselves.
+const lane = document.getElementById('scaleLane');
+let dragStartX = null, dragStartOffset = 0;
+function dragStart(x) { dragStartX = x; dragStartOffset = scaleOffset; }
+function dragMove(x) {
+  if (dragStartX === null) return;
+  const deltaCols = Math.round((x - dragStartX) / colW / 2) * 2;
+  scaleOffset = dragStartOffset + deltaCols;
+  renderScrollLayer();
+  renderRows(); // zone/value labels for each reading depend on scaleOffset too
+}
+function dragEnd() { dragStartX = null; }
+lane.addEventListener('mousedown', e => dragStart(e.clientX));
+window.addEventListener('mousemove', e => dragMove(e.clientX));
+window.addEventListener('mouseup', dragEnd);
+lane.addEventListener('touchstart', e => dragStart(e.touches[0].clientX), { passive: true });
+lane.addEventListener('touchmove', e => dragMove(e.touches[0].clientX), { passive: true });
+lane.addEventListener('touchend', dragEnd);
+
+// ===================== Zoom (pinch + button, same pattern as Exposure Preview) =====================
+const FOCAL_LENGTHS = [1, 2, 4];
+let zoomCaps = null;
+let zoomIdx = 0;
+
+function applyZoom(z) {
+  if (!track) return;
+  try { track.applyConstraints({ advanced: [{ zoom: z }] }); } catch (e) {}
+  document.getElementById('zoomBtn').textContent = z.toFixed(1) + 'x';
+}
+
+function setupZoom(video) {
+  let caps = {};
+  try { caps = track.getCapabilities ? track.getCapabilities() : {}; } catch (e) {}
+  if (!caps.zoom) return;
+  zoomCaps = caps.zoom;
+  document.getElementById('zoomBtn').style.display = 'block';
+  applyZoom(Math.min(zoomCaps.max, Math.max(zoomCaps.min, 1)));
+
+  document.getElementById('zoomBtn').addEventListener('click', () => {
+    zoomIdx = (zoomIdx + 1) % FOCAL_LENGTHS.length;
+    const z = Math.min(zoomCaps.max, Math.max(zoomCaps.min, FOCAL_LENGTHS[zoomIdx]));
+    applyZoom(z);
+  });
+
+  let startDist = null, startZoom = 1;
+  function touchDist(t) { const dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY; return Math.sqrt(dx*dx + dy*dy); }
+  video.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) { startDist = touchDist(e.touches); startZoom = zoomCaps ? (track.getSettings().zoom || 1) : 1; }
+  }, { passive: true });
+  video.addEventListener('touchmove', e => {
+    if (e.touches.length === 2 && startDist) {
+      e.preventDefault();
+      const scale = touchDist(e.touches) / startDist;
+      let z = startZoom * scale;
+      z = Math.min(zoomCaps.max, Math.max(zoomCaps.min, z));
+      applyZoom(z);
+    }
+  }, { passive: false });
+  video.addEventListener('touchend', () => { startDist = null; }, { passive: true });
+}
+
+// ===================== Init =====================
+fullRender();
+startCamera();
+</script>
+</body>
+</html>
